@@ -1,3 +1,5 @@
+import { RadiomicsFeatures, MLModelPrediction } from './services/classicalML';
+
 export interface ScanAnalysis {
   id: string;
   timestamp: string;
@@ -10,6 +12,9 @@ export interface ScanAnalysis {
   abnormalityDetected: boolean;
   imageUrl?: string;
   patientName?: string;
+  radiomicsFeatures?: RadiomicsFeatures;
+  randomForestResult?: MLModelPrediction;
+  xgboostResult?: MLModelPrediction;
 }
 
 export interface ChatMessage {

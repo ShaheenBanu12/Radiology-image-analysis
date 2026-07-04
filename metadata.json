@@ -2,5 +2,7 @@
   "name": "Radiologix AI",
   "description": "Professional radio image analysis tool for CT and MRI scans. AI-powered diagnostics assistant for medical imaging support.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

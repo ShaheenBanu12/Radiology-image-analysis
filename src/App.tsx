@@ -25,6 +25,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { analyzeRadioImage, streamChatWithRadiologyAI } from './services/gemini.ts';
 import { ScanAnalysis, ViewState, ChatMessage } from './types.ts';
+import { extractRadiomicsFeatures, runRandomForest, runXGBoost } from './services/classicalML';
 
 // Mock history matching new schema
 const MOCK_HISTORY: ScanAnalysis[] = [
@@ -54,7 +55,7 @@ export default function App() {
   const [history, setHistory] = useState<ScanAnalysis[]>(MOCK_HISTORY);
   
   // Sub-view states
-  const [reportTab, setReportTab] = useState<'doctor' | 'patient'>('doctor');
+  const [reportTab, setReportTab] = useState<'doctor' | 'patient' | 'classical'>('doctor');
   const [visualMode, setVisualMode] = useState<'original' | 'segmented' | 'heatmap'>('original');
   const [sliceIndex, setSliceIndex] = useState(42);
   const [analysisStatusIndex, setAnalysisStatusIndex] = useState(0);
@@ -169,6 +170,18 @@ export default function App() {
 
         const result = await analyzeRadioImage(optimizedBase64, 'image/jpeg', scanType);
         
+        // Extract features and run Classical ML (Random Forest, XGBoost)
+        let radiomicsFeatures = undefined;
+        let randomForestResult = undefined;
+        let xgboostResult = undefined;
+        try {
+          radiomicsFeatures = await extractRadiomicsFeatures(optimizedBase64);
+          randomForestResult = runRandomForest(radiomicsFeatures);
+          xgboostResult = runXGBoost(radiomicsFeatures);
+        } catch (mlErr) {
+          console.error("Classical ML extraction error:", mlErr);
+        }
+
         const newScan: ScanAnalysis = {
           id: Math.random().toString(36).substr(2, 9),
           patientName: patientName,
@@ -180,7 +193,10 @@ export default function App() {
           confidence: result.confidence,
           region: result.region,
           abnormalityDetected: result.abnormalityDetected,
-          imageUrl: previewUrl || undefined
+          imageUrl: previewUrl || undefined,
+          radiomicsFeatures,
+          randomForestResult,
+          xgboostResult
         };
         
         setActiveAnalysis(newScan);
@@ -640,7 +656,8 @@ export default function App() {
                          <div className="flex gap-1 p-1 bg-bg rounded-2xl border border-border">
                           {[
                             { id: 'doctor', icon: Microscope, label: 'Scientific Report' },
-                            { id: 'patient', icon: Heart, label: 'Patient Summary' }
+                            { id: 'patient', icon: Heart, label: 'Patient Summary' },
+                            { id: 'classical', icon: Activity, label: 'Classical ML (RF & XGBoost)' }
                           ].map(tab => (
                             <button
                               key={tab.id}
@@ -693,22 +710,178 @@ export default function App() {
                           </div>
                         ) : activeAnalysis ? (
                           <div className="space-y-8">
-                             <div className="prose prose-slate prose-sm max-w-none prose-p:text-text-main prose-headings:text-accent prose-headings:font-black prose-headings:tracking-tight prose-headings:italic prose-headings:serif prose-p:leading-relaxed prose-li:text-text-main">
-                                <ReactMarkdown>
-                                  {reportTab === 'doctor' ? activeAnalysis.doctorReport : activeAnalysis.patientSummary}
-                                </ReactMarkdown>
-                             </div>
+                             {reportTab !== 'classical' ? (
+                               <>
+                                 <div className="prose prose-slate prose-sm max-w-none prose-p:text-text-main prose-headings:text-accent prose-headings:font-black prose-headings:tracking-tight prose-headings:italic prose-headings:serif prose-p:leading-relaxed prose-li:text-text-main">
+                                    <ReactMarkdown>
+                                      {reportTab === 'doctor' ? activeAnalysis.doctorReport : activeAnalysis.patientSummary}
+                                    </ReactMarkdown>
+                                 </div>
 
-                             <div className="grid grid-cols-2 gap-6 pt-10 border-t border-border">
-                                <div className="bg-bg p-5 rounded-3xl border border-border">
-                                   <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Region Focus</p>
-                                   <p className="text-sm font-bold text-accent italic serif">{activeAnalysis.region}</p>
-                                </div>
-                                <div className="bg-bg p-5 rounded-3xl border border-border">
-                                   <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Confidence</p>
-                                   <p className="text-sm font-bold text-success font-mono">{Math.round(activeAnalysis.confidence * 100)}% Verified</p>
-                                </div>
-                             </div>
+                                 <div className="grid grid-cols-2 gap-6 pt-10 border-t border-border">
+                                    <div className="bg-bg p-5 rounded-3xl border border-border">
+                                       <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Region Focus</p>
+                                       <p className="text-sm font-bold text-accent italic serif">{activeAnalysis.region}</p>
+                                    </div>
+                                    <div className="bg-bg p-5 rounded-3xl border border-border">
+                                       <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-2">Confidence</p>
+                                       <p className="text-sm font-bold text-success font-mono">{Math.round(activeAnalysis.confidence * 100)}% Verified</p>
+                                    </div>
+                                 </div>
+                               </>
+                             ) : (
+                               <div className="space-y-8 text-accent">
+                                 {/* Overview Header */}
+                                 <div className="bg-bg p-6 rounded-3xl border border-border shadow-sm">
+                                   <span className="px-2 py-0.5 bg-accent-blue/10 text-accent-blue text-[9px] font-black uppercase rounded border border-accent-blue/20">Lab Protocol</span>
+                                   <h4 className="text-sm font-black uppercase tracking-tight mt-2 text-accent">Radiomics Feature-Based Machine Learning Diagnostics</h4>
+                                   <p className="text-text-muted text-[11px] leading-relaxed mt-1">
+                                     Instead of using end-to-end cognitive deep learning, this panel demonstrates classical machine learning by extracting quantitative structural features from the image canvas and running them through local Random Forest and XGBoost classifiers.
+                                   </p>
+                                 </div>
+
+                                 {/* Radiomics Features Table */}
+                                 <div>
+                                   <h5 className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-3 flex items-center gap-1.5">
+                                     <Activity className="w-3.5 h-3.5 text-accent-blue" />
+                                     Extracted Radiomics (Feature Vector)
+                                   </h5>
+                                   {activeAnalysis.radiomicsFeatures ? (
+                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                       {[
+                                         { name: "Mean Intensity", value: activeAnalysis.radiomicsFeatures.meanIntensity, desc: "Average pixel brightness" },
+                                         { name: "Contrast (StdDev)", value: activeAnalysis.radiomicsFeatures.contrast, desc: "Standard deviation of pixel values" },
+                                         { name: "Skewness (Asymmetry)", value: activeAnalysis.radiomicsFeatures.skewness, desc: "Intensity distribution symmetry" },
+                                         { name: "Shannon Entropy", value: activeAnalysis.radiomicsFeatures.entropy, desc: "Image texture randomness" },
+                                         { name: "Edge Density", value: activeAnalysis.radiomicsFeatures.edgeDensity, desc: "High-frequency Sobel detail" },
+                                         { name: "Homogeneity", value: activeAnalysis.radiomicsFeatures.homogeneity, desc: "Global pixel uniformity index" }
+                                       ].map((f, idx) => (
+                                         <div key={idx} className="bg-bg p-4 rounded-2xl border border-border hover:shadow-sm transition-shadow">
+                                           <p className="text-[10px] font-bold text-text-muted uppercase leading-none">{f.name}</p>
+                                           <p className="text-lg font-black font-mono tracking-tight mt-1.5 text-accent">{f.value}</p>
+                                           <p className="text-[8px] text-text-muted font-medium mt-1 leading-none">{f.desc}</p>
+                                         </div>
+                                       ))}
+                                     </div>
+                                   ) : (
+                                     <div className="p-4 bg-bg rounded-2xl border border-dashed border-border text-center text-xs text-text-muted">
+                                       No radiomics extracted yet. Upload a new scan to compute feature vectors.
+                                     </div>
+                                   )}
+                                 </div>
+
+                                 {/* Models Side-by-Side */}
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                   {/* Random Forest Classifier */}
+                                   <div className="bg-white p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
+                                     <div>
+                                       <span className="px-2.5 py-0.5 bg-success/10 text-success text-[8px] font-black uppercase rounded border border-success/20">Ensemble Classifier</span>
+                                       <h5 className="text-xs font-black uppercase tracking-widest mt-2">Random Forest Classifier</h5>
+                                       <p className="text-[9px] text-text-muted mt-0.5 leading-relaxed">Uses 5 Bootstrapped Decision Trees with majority voting.</p>
+                                       
+                                       {activeAnalysis.randomForestResult ? (
+                                         <div className="mt-4 space-y-4">
+                                           <div className="flex items-center justify-between bg-bg p-3.5 rounded-2xl border border-border">
+                                             <span className="text-[10px] font-bold text-text-muted uppercase">VOTING OUTPUT</span>
+                                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                               activeAnalysis.randomForestResult.label === "Abnormality Detected" 
+                                                 ? "bg-danger/10 text-danger border border-danger/20" 
+                                                 : "bg-success/10 text-success border border-success/20"
+                                             }`}>
+                                               {activeAnalysis.randomForestResult.label}
+                                             </span>
+                                           </div>
+                                           <div className="space-y-1">
+                                             <div className="flex justify-between text-[9px] font-bold uppercase text-text-muted">
+                                               <span>Ensemble Probability</span>
+                                               <span className="font-mono">{Math.round(activeAnalysis.randomForestResult.probability * 100)}%</span>
+                                             </div>
+                                             <div className="w-full h-1.5 bg-bg rounded-full overflow-hidden border border-border">
+                                               <div className="h-full bg-success transition-all duration-500" style={{ width: `${activeAnalysis.randomForestResult.probability * 100}%` }} />
+                                             </div>
+                                           </div>
+
+                                           {/* Decision Path Logs */}
+                                           <div className="mt-4">
+                                             <h6 className="text-[9px] font-black uppercase tracking-wider text-text-muted mb-2">Decision Tree Votes & Traversal Path:</h6>
+                                             <div className="bg-bg p-3 rounded-2xl border border-border font-mono text-[8px] space-y-1.5 text-text-muted max-h-28 overflow-y-auto custom-scrollbar">
+                                               {activeAnalysis.randomForestResult.decisionPath.map((path, i) => (
+                                                 <div key={i} className="flex gap-2">
+                                                   <span className="text-accent-blue font-bold">▶</span>
+                                                   <span>{path}</span>
+                                                 </div>
+                                               ))}
+                                             </div>
+                                           </div>
+                                         </div>
+                                       ) : (
+                                         <p className="text-xs text-text-muted mt-4">Inference waiting...</p>
+                                       )}
+                                     </div>
+                                   </div>
+
+                                   {/* XGBoost Classifier */}
+                                   <div className="bg-white p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
+                                     <div>
+                                       <span className="px-2.5 py-0.5 bg-accent-blue/10 text-accent-blue text-[8px] font-black uppercase rounded border border-accent-blue/20">Gradient Booster</span>
+                                       <h5 className="text-xs font-black uppercase tracking-widest mt-2">XGBoost Classifier</h5>
+                                       <p className="text-[9px] text-text-muted mt-0.5 leading-relaxed">Sequential decision trees optimizing residuals log-odds.</p>
+                                       
+                                       {activeAnalysis.xgboostResult ? (
+                                         <div className="mt-4 space-y-4">
+                                           <div className="flex items-center justify-between bg-bg p-3.5 rounded-2xl border border-border">
+                                             <span className="text-[10px] font-bold text-text-muted uppercase">BOOSTED OUTPUT</span>
+                                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                               activeAnalysis.xgboostResult.label === "Abnormality Detected" 
+                                                 ? "bg-danger/10 text-danger border border-danger/20" 
+                                                 : "bg-success/10 text-success border border-success/20"
+                                             }`}>
+                                               {activeAnalysis.xgboostResult.label}
+                                             </span>
+                                           </div>
+                                           <div className="space-y-1">
+                                             <div className="flex justify-between text-[9px] font-bold uppercase text-text-muted">
+                                               <span>Model Probability</span>
+                                               <span className="font-mono">{Math.round(activeAnalysis.xgboostResult.probability * 100)}%</span>
+                                             </div>
+                                             <div className="w-full h-1.5 bg-bg rounded-full overflow-hidden border border-border">
+                                               <div className="h-full bg-accent-blue transition-all duration-500" style={{ width: `${activeAnalysis.xgboostResult.probability * 100}%` }} />
+                                             </div>
+                                           </div>
+
+                                           {/* Decision Path Logs */}
+                                           <div className="mt-4">
+                                             <h6 className="text-[9px] font-black uppercase tracking-wider text-text-muted mb-2">Stage Residual Adjustments (Sigmoid Link):</h6>
+                                             <div className="bg-bg p-3 rounded-2xl border border-border font-mono text-[8px] space-y-1.5 text-text-muted max-h-28 overflow-y-auto custom-scrollbar">
+                                               {activeAnalysis.xgboostResult.decisionPath.map((path, i) => (
+                                                 <div key={i} className="flex gap-2">
+                                                   <span className="text-accent-blue font-bold">▶</span>
+                                                   <span>{path}</span>
+                                                 </div>
+                                               ))}
+                                             </div>
+                                           </div>
+                                         </div>
+                                       ) : (
+                                         <p className="text-xs text-text-muted mt-4">Inference waiting...</p>
+                                       )}
+                                     </div>
+                                   </div>
+                                 </div>
+
+                                 {/* Comparative Analysis */}
+                                 <div className="bg-accent/5 border border-accent/10 p-6 rounded-3xl">
+                                   <h5 className="text-[10px] font-black uppercase tracking-widest text-accent flex items-center gap-1.5 mb-2">
+                                      <Info className="w-3.5 h-3.5 text-accent-blue" />
+                                      Machine Learning Lab Thesis Commentary
+                                   </h5>
+                                   <p className="text-[11px] leading-relaxed text-text-muted">
+                                      <strong>The Verdict:</strong> Classical ML models (Random Forest & XGBoost) are limited because they require <strong>manual hand-crafted feature engineering</strong> (Radiomics). If the abnormal tumor is inside a region with low local variance or contrast, classical classifiers fail to "see" it because they rely on simple aggregate statistics. 
+                                      In contrast, the <strong>Generative Multimodal LLM (Gemini 3.5)</strong> processes end-to-end pixel spatial context semantic structures directly, achieving high clinical accuracy and explaining context eloquently.
+                                   </p>
+                                 </div>
+                               </div>
+                             )}
                           </div>
                         ) : (
                           <div className="h-full flex flex-col items-center justify-center text-center max-w-xs mx-auto text-text-muted italic text-sm">

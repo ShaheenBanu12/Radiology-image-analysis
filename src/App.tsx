@@ -53,6 +53,11 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'CT' | 'MRI' | 'PET/CT'>('MRI');
   const [history, setHistory] = useState<ScanAnalysis[]>(MOCK_HISTORY);
+
+  // Patient Clinical Demographics
+  const [age, setAge] = useState<string>('54');
+  const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [cholesterol, setCholesterol] = useState<string>('215');
   
   // Sub-view states
   const [reportTab, setReportTab] = useState<'doctor' | 'patient' | 'classical'>('doctor');
@@ -168,7 +173,14 @@ export default function App() {
           img.src = rawBase64;
         });
 
-        const result = await analyzeRadioImage(optimizedBase64, 'image/jpeg', scanType);
+        const result = await analyzeRadioImage(
+          optimizedBase64, 
+          'image/jpeg', 
+          scanType,
+          Number(age),
+          gender,
+          Number(cholesterol)
+        );
         
         // Extract features and run Classical ML (Random Forest, XGBoost)
         let radiomicsFeatures = undefined;
@@ -176,8 +188,8 @@ export default function App() {
         let xgboostResult = undefined;
         try {
           radiomicsFeatures = await extractRadiomicsFeatures(optimizedBase64);
-          randomForestResult = runRandomForest(radiomicsFeatures);
-          xgboostResult = runXGBoost(radiomicsFeatures);
+          randomForestResult = runRandomForest(radiomicsFeatures, { age: Number(age), gender, cholesterol: Number(cholesterol) });
+          xgboostResult = runXGBoost(radiomicsFeatures, { age: Number(age), gender, cholesterol: Number(cholesterol) });
         } catch (mlErr) {
           console.error("Classical ML extraction error:", mlErr);
         }
@@ -196,7 +208,12 @@ export default function App() {
           imageUrl: previewUrl || undefined,
           radiomicsFeatures,
           randomForestResult,
-          xgboostResult
+          xgboostResult,
+          age: Number(age),
+          gender,
+          cholesterol: Number(cholesterol),
+          heartDiseaseCategory: result.heartDiseaseCategory || "Undetermined Risk Profile",
+          cardiovascularRiskScore: result.cardiovascularRiskScore || 0
         };
         
         setActiveAnalysis(newScan);
@@ -371,6 +388,10 @@ export default function App() {
                               setPreviewUrl(scan.imageUrl || null);
                               setScanType(scan.imageType);
                               setView('analyze');
+                              setPatientName(scan.patientName || '');
+                              if (scan.age) setAge(scan.age.toString());
+                              if (scan.gender) setGender(scan.gender);
+                              if (scan.cholesterol) setCholesterol(scan.cholesterol.toString());
                             }}
                             className="border-b border-border/50 hover:bg-bg/40 transition-all group cursor-pointer"
                           >
@@ -464,6 +485,55 @@ export default function App() {
                       !patientName && selectedFile && !activeAnalysis ? 'border-accent-blue animate-pulse' : 'border-border'
                     }`}
                   />
+                  
+                  {/* Multimodal Clinical Biomarkers */}
+                  <div className="flex items-center gap-3 bg-bg px-4 py-1.5 rounded-xl border border-border">
+                    <span className="text-[9px] font-black uppercase text-text-muted">Clinical Profile</span>
+                    
+                    {/* Age */}
+                    <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                      <span className="text-[8px] font-bold text-text-muted uppercase">Age</span>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="120"
+                        value={age}
+                        onChange={(e) => setAge(e.target.value)}
+                        disabled={!!activeAnalysis || isAnalyzing}
+                        className="w-10 bg-transparent text-xs font-mono font-bold text-accent focus:outline-none focus:border-b border-accent-blue/30 text-center"
+                      />
+                    </div>
+
+                    {/* Sex */}
+                    <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                      <span className="text-[8px] font-bold text-text-muted uppercase">Sex</span>
+                      <select
+                        value={gender}
+                        onChange={(e) => setGender(e.target.value as any)}
+                        disabled={!!activeAnalysis || isAnalyzing}
+                        className="bg-transparent text-xs font-bold text-accent focus:outline-none cursor-pointer"
+                      >
+                        <option value="Male">M</option>
+                        <option value="Female">F</option>
+                        <option value="Other">O</option>
+                      </select>
+                    </div>
+
+                    {/* Cholesterol */}
+                    <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                      <span className="text-[8px] font-bold text-text-muted uppercase">Chol</span>
+                      <input 
+                        type="number" 
+                        min="50" 
+                        max="500"
+                        value={cholesterol}
+                        onChange={(e) => setCholesterol(e.target.value)}
+                        disabled={!!activeAnalysis || isAnalyzing}
+                        className="w-12 bg-transparent text-xs font-mono font-bold text-accent focus:outline-none focus:border-b border-accent-blue/30 text-center"
+                      />
+                      <span className="text-[7px] text-text-muted uppercase font-bold">mg/dL</span>
+                    </div>
+                  </div>
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="flex items-center gap-2 px-5 py-2 bg-white border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-accent hover:shadow-md transition-all active:scale-95"
@@ -712,6 +782,63 @@ export default function App() {
                           <div className="space-y-8">
                              {reportTab !== 'classical' ? (
                                <>
+                                 {/* High-Tech Multimodal Biomarker Summary */}
+                                 {(activeAnalysis.age !== undefined || activeAnalysis.heartDiseaseCategory) && (
+                                   <div className="bg-bg/60 border border-border p-6 rounded-3xl mb-8 flex flex-col md:flex-row items-stretch justify-between gap-6 relative overflow-hidden group">
+                                     <div className="absolute top-0 right-0 w-32 h-32 bg-accent-blue/5 rounded-full blur-2xl group-hover:scale-150 transition-all duration-700 pointer-events-none" />
+                                     
+                                     <div className="flex-1 flex flex-col justify-between space-y-4">
+                                       <div className="flex items-center gap-2">
+                                         <Heart className="w-4 h-4 text-danger animate-pulse" />
+                                         <span className="text-[10px] font-black uppercase tracking-widest text-accent-blue">Patient Biosensor Profile</span>
+                                       </div>
+                                       
+                                       <div className="grid grid-cols-3 gap-4">
+                                         <div>
+                                           <p className="text-[8px] text-text-muted uppercase font-bold leading-none">Patient Age</p>
+                                           <p className="text-sm font-black font-mono mt-1 text-accent">{activeAnalysis.age || "N/A"} yrs</p>
+                                         </div>
+                                         <div>
+                                           <p className="text-[8px] text-text-muted uppercase font-bold leading-none">Biological Sex</p>
+                                           <p className="text-sm font-black font-mono mt-1 text-accent">{activeAnalysis.gender || "N/A"}</p>
+                                         </div>
+                                         <div>
+                                           <p className="text-[8px] text-text-muted uppercase font-bold leading-none">Cholesterol</p>
+                                           <p className="text-sm font-black font-mono mt-1 text-accent">{activeAnalysis.cholesterol || "N/A"} <span className="text-[9px] font-medium text-text-muted">mg/dL</span></p>
+                                         </div>
+                                       </div>
+                                     </div>
+
+                                     <div className="w-px bg-border hidden md:block" />
+
+                                     <div className="flex-1 flex flex-col justify-between space-y-3 pl-0 md:pl-2">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[9px] font-black uppercase tracking-widest text-text-muted">AI Multimodal Diagnosis</span>
+                                          {activeAnalysis.cardiovascularRiskScore !== undefined && (
+                                            <span className="text-xs font-black font-mono text-danger">{activeAnalysis.cardiovascularRiskScore}% Risk</span>
+                                          )}
+                                        </div>
+                                        
+                                        <div className="space-y-1">
+                                          <div className="flex justify-between items-center text-[10px] font-bold text-accent">
+                                            <span className="truncate italic font-serif text-accent font-bold">{activeAnalysis.heartDiseaseCategory || "Analyzing Multimodal Biomarkers..."}</span>
+                                          </div>
+                                          {activeAnalysis.cardiovascularRiskScore !== undefined && (
+                                            <div className="w-full h-2 bg-border rounded-full overflow-hidden border border-border/50 relative">
+                                              <div 
+                                                className={`h-full transition-all duration-1000 ${
+                                                  activeAnalysis.cardiovascularRiskScore > 70 ? 'bg-danger' :
+                                                  activeAnalysis.cardiovascularRiskScore > 40 ? 'bg-orange-500' : 'bg-success'
+                                                }`}
+                                                style={{ width: `${activeAnalysis.cardiovascularRiskScore}%` }}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                     </div>
+                                   </div>
+                                 )}
+
                                  <div className="prose prose-slate prose-sm max-w-none prose-p:text-text-main prose-headings:text-accent prose-headings:font-black prose-headings:tracking-tight prose-headings:italic prose-headings:serif prose-p:leading-relaxed prose-li:text-text-main">
                                     <ReactMarkdown>
                                       {reportTab === 'doctor' ? activeAnalysis.doctorReport : activeAnalysis.patientSummary}

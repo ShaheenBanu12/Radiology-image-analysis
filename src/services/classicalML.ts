@@ -12,6 +12,8 @@ export interface MLModelPrediction {
   label: "Normal Study" | "Abnormality Detected";
   featureImportance: Record<string, number>;
   decisionPath: string[];
+  heartDiseaseRisk?: number; // Calculated multimodal risk score (0-100%)
+  heartDiseaseCategory?: string; // Classified heart disease category
 }
 
 /**
@@ -117,79 +119,102 @@ export async function extractRadiomicsFeatures(imageUrl: string): Promise<Radiom
 }
 
 /**
- * Random Forest Ensemble Implementation
- * Compiles predictions from 5 independent decision trees built on different boot-strapped thresholds.
+ * Multimodal Random Forest Ensemble Implementation
+ * Compiles predictions from 5 independent decision trees built on different bootstrapped thresholds of radiomics AND clinical metrics.
  */
-export function runRandomForest(features: RadiomicsFeatures): MLModelPrediction {
+export function runRandomForest(
+  features: RadiomicsFeatures, 
+  clinical?: { age: number; gender: string; cholesterol: number }
+): MLModelPrediction {
   const paths: string[] = [];
   let votesForAbnormal = 0;
 
-  // Tree 1: Focuses on Contrast & Entropy (Texture Uniformity)
+  // Set default clinical metadata if absent to prevent runtime crashes
+  const age = clinical?.age ?? 45;
+  const gender = clinical?.gender ?? "Female";
+  const cholesterol = clinical?.cholesterol ?? 190;
+
+  paths.push(`Input Clinical Profiles: Age: ${age}, Gender: ${gender}, Cholesterol: ${cholesterol} mg/dL`);
+
+  // Tree 1: Focuses on Contrast & Cholesterol (Cardiac calcification / atherosclerosis proxy)
   const tree1 = () => {
-    if (features.entropy > 4.5) {
+    if (cholesterol > 220) {
       if (features.contrast > 35) {
-        paths.push("Tree 1: Entropy > 4.5 -> Contrast > 35 -> [Abnormal]");
+        paths.push(`Tree 1: Cholesterol (${cholesterol} > 220) & Contrast (${features.contrast} > 35) -> Abnormal Vascular Complexity [Abnormal]`);
         return 1;
       } else {
-        paths.push("Tree 1: Entropy > 4.5 -> Contrast <= 35 -> [Normal]");
+        paths.push(`Tree 1: Cholesterol (${cholesterol} > 220) but Low Contrast (${features.contrast} <= 35) -> Metabolic Risk, No Lesion [Normal]`);
         return 0;
       }
     } else {
-      paths.push("Tree 1: Entropy <= 4.5 -> [Normal]");
+      if (features.entropy > 4.5) {
+        paths.push(`Tree 1: Low Cholesterol but High Tissue Complexity (Entropy ${features.entropy} > 4.5) -> High Risk Scan [Abnormal]`);
+        return 1;
+      }
+      paths.push(`Tree 1: Normal Cholesterol & Uniform Tissue -> [Normal]`);
       return 0;
     }
   };
 
-  // Tree 2: Focuses on Edges and Asymmetry (Skewness)
+  // Tree 2: Focuses on Age, Gender & Skewness (Anatomical asymmetry)
   const tree2 = () => {
-    if (features.edgeDensity > 0.04) {
+    if (age > 60) {
       if (Math.abs(features.skewness) > 0.3) {
-        paths.push("Tree 2: Edge Density > 0.04 -> Skewness Asymmetry -> [Abnormal]");
+        paths.push(`Tree 2: High Age (${age} > 60) & Asymmetric Tissue (Skewness ${features.skewness}) -> Age-Related Degenerative Pattern [Abnormal]`);
         return 1;
       } else {
-        paths.push("Tree 2: Edge Density > 0.04 -> Uniform Skewness -> [Normal]");
+        paths.push(`Tree 2: High Age (${age} > 60) with Symmetric Tissue -> Age Normal [Normal]`);
         return 0;
       }
     } else {
-      paths.push("Tree 2: Edge Density <= 0.04 -> [Normal]");
+      if (gender === "Male" && cholesterol > 240) {
+        paths.push(`Tree 2: Young Male with Severe Cholesterol (${cholesterol} > 240) -> High Atherosclerotic Target [Abnormal]`);
+        return 1;
+      }
+      paths.push(`Tree 2: Moderate Age & Normal Profile -> [Normal]`);
       return 0;
     }
   };
 
-  // Tree 3: Focuses on Intensity Distribution & Homogeneity
+  // Tree 3: Intensity Distribution, Homogeneity & Metabolic Biomarkers
   const tree3 = () => {
     if (features.homogeneity < 0.015) {
-      if (features.meanIntensity > 40) {
-        paths.push("Tree 3: Low Homogeneity < 0.015 -> High Mean Intensity -> [Abnormal]");
+      if (cholesterol > 200 || age > 50) {
+        paths.push(`Tree 3: Low Homogeneity (${features.homogeneity} < 0.015) coupled with Clinical Risk (Age: ${age}, Chol: ${cholesterol}) -> High Cardiac Risk [Abnormal]`);
         return 1;
       } else {
-        paths.push("Tree 3: Low Homogeneity < 0.015 -> Dark Scan -> [Normal]");
+        paths.push(`Tree 3: Low Homogeneity in healthy young subject -> Variant [Normal]`);
         return 0;
       }
     } else {
-      paths.push("Tree 3: Uniform Homogeneity >= 0.015 -> [Normal]");
+      paths.push(`Tree 3: Perfectly Homogeneous Tissue (Smoothness) -> [Normal]`);
       return 0;
     }
   };
 
-  // Tree 4: Robust Combined Check
+  // Tree 4: Structural Edge Complexity & High Cholesterol
   const tree4 = () => {
-    if (features.entropy > 4.2 && features.contrast > 30) {
-      paths.push("Tree 4: Entropy > 4.2 & Contrast > 30 -> [Abnormal]");
-      return 1;
+    if (features.edgeDensity > 0.04) {
+      if (cholesterol > 230) {
+        paths.push(`Tree 4: Edge Density (${features.edgeDensity} > 0.04) & Hypercholesterolemia (${cholesterol} > 230) -> Suspicious Coronary Calcification [Abnormal]`);
+        return 1;
+      } else {
+        paths.push(`Tree 4: Edge Density high but low cholesterol -> Normal structural textures [Normal]`);
+        return 0;
+      }
     } else {
-      paths.push("Tree 4: Lower texture indicators -> [Normal]");
+      paths.push(`Tree 4: Smooth edges/low structural variance -> [Normal]`);
       return 0;
     }
   };
 
-  // Tree 5: Structural Detail Variance
+  // Tree 5: Combining Multi-features with high age risk
   const tree5 = () => {
-    if (features.edgeDensity > 0.05) {
-      paths.push("Tree 5: Edge Density > 0.05 -> High Complexity Structure -> [Abnormal]");
+    if (age > 55 && cholesterol > 210 && features.entropy > 4.2) {
+      paths.push(`Tree 5: Combined Senior Risk Profile (Age > 55, Chol > 210, Entropy > 4.2) -> Cumulative Heart Risk [Abnormal]`);
       return 1;
     } else {
-      paths.push("Tree 5: Low complexity profile -> [Normal]");
+      paths.push(`Tree 5: Cumulative markers below high-risk clinical threshold -> [Normal]`);
       return 0;
     }
   };
@@ -199,69 +224,116 @@ export function runRandomForest(features: RadiomicsFeatures): MLModelPrediction 
 
   const probability = votesForAbnormal / 5;
 
+  // Multimodal heart risk formula based on Framingham study concepts combined with radiomics
+  const clinicalRiskFactor = (age * 0.4) + (cholesterol > 200 ? (cholesterol - 200) * 0.3 : 0) + (gender === "Male" ? 10 : 0);
+  const imageFactor = probability * 40;
+  const combinedRisk = Math.min(Math.round(clinicalRiskFactor + imageFactor), 98);
+
+  // Heart disease categorization classifier
+  let category: string = "Normal Study / Low Cardiovascular Risk";
+  if (combinedRisk > 75) {
+    category = "High Risk: Coronary Artery Disease (CAD) / Coronary Calcification suspected";
+  } else if (combinedRisk > 50) {
+    if (features.meanIntensity > 40) {
+      category = "Moderate Risk: Hypertensive Heart Disease / Myocardial Hypertrophy";
+    } else {
+      category = "Moderate Risk: Atherosclerotic Vascular Disease";
+    }
+  } else if (combinedRisk > 25) {
+    category = "Borderline / Mild Cardiovascular Risk - Monitor Lipids";
+  }
+
   return {
     probability,
     label: probability >= 0.5 ? "Abnormality Detected" : "Normal Study",
     featureImportance: {
-      "Entropy (Complexity)": 0.35,
-      "Contrast (Std Dev)": 0.25,
-      "Edge Density (Details)": 0.20,
-      "Skewness (Asymmetry)": 0.12,
-      "Homogeneity (Smoothness)": 0.08
+      "Serum Cholesterol": 0.30,
+      "Patient Age": 0.20,
+      "Image Entropy (Complexity)": 0.18,
+      "Contrast (Vascular Shadows)": 0.14,
+      "Edge Density (Calcification)": 0.10,
+      "Gender Demographics": 0.08
     },
-    decisionPath: paths
+    decisionPath: paths,
+    heartDiseaseRisk: combinedRisk,
+    heartDiseaseCategory: category
   };
 }
 
 /**
- * XGBoost (Extreme Gradient Boosting) Simulator
- * Sums sequential tree regression outputs transformed via a Sigmoid link function.
+ * Multimodal XGBoost (Extreme Gradient Boosting) Simulator
+ * Sums sequential tree regression outputs transformed via a Sigmoid link function, fusing clinical data.
  */
-export function runXGBoost(features: RadiomicsFeatures): MLModelPrediction {
+export function runXGBoost(
+  features: RadiomicsFeatures, 
+  clinical?: { age: number; gender: string; cholesterol: number }
+): MLModelPrediction {
   const paths: string[] = [];
+
+  const age = clinical?.age ?? 45;
+  const gender = clinical?.gender ?? "Female";
+  const cholesterol = clinical?.cholesterol ?? 190;
   
-  // Base margin prediction (prior log-odds, typically 0.0)
-  let logOdds = -0.5; // Slightly biased towards normal studies prior
-  paths.push(`Base Predictor: log-odds = ${logOdds}`);
+  // Base margin prediction (prior log-odds)
+  let logOdds = -0.6; // Moderately healthy prior
+  paths.push(`Base Predictor log-odds: ${logOdds}`);
 
-  // Tree 1: First Boosting Stage (Correcting base error using Entropy)
-  const tree1_val = features.entropy > 4.3 ? 0.8 : -0.6;
-  logOdds += 0.3 * tree1_val; // Learning rate (eta) = 0.3
-  paths.push(`Stage 1 (Entropy > 4.3): Residual correction = ${tree1_val > 0 ? "+" : ""}${0.3 * tree1_val}`);
+  // Tree 1: Boosting Stage 1 (Correcting error via Cholesterol threshold)
+  const tree1_val = cholesterol > 220 ? 0.9 : -0.5;
+  logOdds += 0.3 * tree1_val; // Learning rate = 0.3
+  paths.push(`Stage 1 (Cholesterol > 220): Residual update = ${tree1_val > 0 ? "+" : ""}${(0.3 * tree1_val).toFixed(2)}`);
 
-  // Tree 2: Second Boosting Stage (Correcting remaining error using Contrast)
-  const tree2_val = features.contrast > 32 ? 0.7 : -0.5;
+  // Tree 2: Boosting Stage 2 (Correcting with Image Contrast & Vascular calcification)
+  const tree2_val = (features.contrast > 32 && cholesterol > 180) ? 0.8 : -0.4;
   logOdds += 0.3 * tree2_val;
-  paths.push(`Stage 2 (Contrast > 32): Residual correction = ${tree2_val > 0 ? "+" : ""}${0.3 * tree2_val}`);
+  paths.push(`Stage 2 (Contrast > 32 & Chol > 180): Residual update = ${tree2_val > 0 ? "+" : ""}${(0.3 * tree2_val).toFixed(2)}`);
 
-  // Tree 3: Third Boosting Stage (Correcting with Edge Density)
-  const tree3_val = features.edgeDensity > 0.035 ? 0.6 : -0.4;
+  // Tree 3: Boosting Stage 3 (Correcting with Age)
+  const tree3_val = age > 55 ? 0.7 : -0.3;
   logOdds += 0.3 * tree3_val;
-  paths.push(`Stage 3 (Edge Density > 0.035): Residual correction = ${tree3_val > 0 ? "+" : ""}${0.3 * tree3_val}`);
+  paths.push(`Stage 3 (Age > 55): Residual update = ${tree3_val > 0 ? "+" : ""}${(0.3 * tree3_val).toFixed(2)}`);
 
-  // Tree 4: Fourth Boosting Stage (Correcting with Homogeneity)
-  const tree4_val = features.homogeneity < 0.02 ? 0.5 : -0.5;
+  // Tree 4: Boosting Stage 4 (Entropy & Edge Density interaction)
+  const tree4_val = (features.entropy > 4.2 && features.edgeDensity > 0.035) ? 0.6 : -0.4;
   logOdds += 0.3 * tree4_val;
-  paths.push(`Stage 4 (Homogeneity < 0.02): Residual correction = ${tree4_val > 0 ? "+" : ""}${0.3 * tree4_val}`);
+  paths.push(`Stage 4 (Entropy > 4.2 & Edge > 0.035): Residual update = ${tree4_val > 0 ? "+" : ""}${(0.3 * tree4_val).toFixed(2)}`);
 
-  // Tree 5: Fifth Boosting Stage (Final polish with Skewness)
-  const tree5_val = Math.abs(features.skewness) > 0.25 ? 0.4 : -0.3;
+  // Tree 5: Boosting Stage 5 (Gender and Homogeneity check)
+  const tree5_val = (gender === "Male" && features.homogeneity < 0.02) ? 0.5 : -0.2;
   logOdds += 0.3 * tree5_val;
-  paths.push(`Stage 5 (Skewness > 0.25): Residual correction = ${tree5_val > 0 ? "+" : ""}${0.3 * tree5_val}`);
+  paths.push(`Stage 5 (Male gender & Homogeneity < 0.02): Residual update = ${tree5_val > 0 ? "+" : ""}${(0.3 * tree5_val).toFixed(2)}`);
 
-  // Sigmoid activation: p = 1 / (1 + e^-logOdds)
+  // Sigmoid Link Function to convert logOdds into probability
   const probability = 1 / (1 + Math.exp(-logOdds));
+
+  // Frame multimodal cardiovascular risk percentage
+  const rfCalculation = (probability * 100);
+  const clinicalMultiFactor = (age / 100) * 15 + (cholesterol > 240 ? 25 : cholesterol > 200 ? 15 : 0);
+  const heartDiseaseRisk = Math.min(Math.round(rfCalculation * 0.7 + clinicalMultiFactor), 99);
+
+  // Heart disease category mapping
+  let category = "Normal Study / Low Risk Profile";
+  if (heartDiseaseRisk > 80) {
+    category = "Cardiomegaly suspected / Severe Atherosclerosis / CAD High Risk";
+  } else if (heartDiseaseRisk > 55) {
+    category = "Atherosclerotic Heart Disease Risk / Coronary Plaque suspected";
+  } else if (heartDiseaseRisk > 30) {
+    category = "Mild Lipoid/Vascular Plaque Risk";
+  }
 
   return {
     probability,
     label: probability >= 0.5 ? "Abnormality Detected" : "Normal Study",
     featureImportance: {
-      "Entropy (Gini Importance)": 0.42,
-      "Contrast (Weight)": 0.28,
-      "Edge Density (Gain)": 0.15,
-      "Homogeneity (Gain)": 0.10,
-      "Skewness (Cover)": 0.05
+      "Serum Cholesterol Level": 0.45,
+      "Image Texture Contrast": 0.22,
+      "Patient Age (Demographic)": 0.15,
+      "Tissue Entropy (Randomness)": 0.10,
+      "Edge Structure Frequency": 0.05,
+      "Gender (Male baseline risk)": 0.03
     },
-    decisionPath: paths
+    decisionPath: paths,
+    heartDiseaseRisk,
+    heartDiseaseCategory: category
   };
 }

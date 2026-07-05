@@ -1,11 +1,18 @@
-export async function analyzeRadioImage(imageData: string, mimeType: string, scanType: string) {
+export async function analyzeRadioImage(
+  imageData: string, 
+  mimeType: string, 
+  scanType: string,
+  age?: number,
+  gender?: string,
+  cholesterol?: number
+) {
   try {
     const response = await fetch("/api/analyze", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ imageData, mimeType, scanType }),
+      body: JSON.stringify({ imageData, mimeType, scanType, age, gender, cholesterol }),
     });
 
     if (!response.ok) {

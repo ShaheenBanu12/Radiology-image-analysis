@@ -22,7 +22,7 @@ const ai = new GoogleGenAI({
 
 // API endpoint for image analysis
 app.post("/api/analyze", async (req, res) => {
-  const { imageData, mimeType, scanType } = req.body;
+  const { imageData, mimeType, scanType, age, gender, cholesterol } = req.body;
   if (!imageData || !mimeType || !scanType) {
     return res.status(400).json({ error: "Missing required parameters" });
   }
@@ -36,9 +36,11 @@ app.post("/api/analyze", async (req, res) => {
       patientSummary: { type: Type.STRING, description: "Simple summary" },
       confidence: { type: Type.NUMBER, description: "Confidence 0-1" },
       region: { type: Type.STRING, description: "Anatomical region" },
-      abnormalityDetected: { type: Type.BOOLEAN, description: "Finding present" }
+      abnormalityDetected: { type: Type.BOOLEAN, description: "Finding present" },
+      heartDiseaseCategory: { type: Type.STRING, description: "Categorized heart disease based on image features and clinical info (e.g. CAD, Cardiomegaly, Hypertensive Heart Disease, Normal/Low Risk)" },
+      cardiovascularRiskScore: { type: Type.NUMBER, description: "Fused cardiovascular risk score from 0 to 100 combining image findings and clinical variables" }
     },
-    required: ["doctorReport", "patientSummary", "confidence", "region", "abnormalityDetected"]
+    required: ["doctorReport", "patientSummary", "confidence", "region", "abnormalityDetected", "heartDiseaseCategory", "cardiovascularRiskScore"]
   };
 
   try {
@@ -49,18 +51,21 @@ app.post("/api/analyze", async (req, res) => {
         {
           role: "user",
           parts: [
-            { text: `Quick clinical audit: ${scanType} image. Identify findings and summarize.` },
+            { text: `Quick clinical audit: ${scanType} image. 
+            Patient Demographics: Age ${age || 'N/A'}, Gender ${gender || 'N/A'}, Serum Cholesterol ${cholesterol || 'N/A'} mg/dL.
+            Identify cardiovascular and regional findings. Correlate blood cholesterol, age, and gender parameters with image markers to synthesize diagnostic risk.` },
             { inlineData: { data: base64Data, mimeType } }
           ]
         }
       ],
       config: {
-        systemInstruction: `You are an expert Board-Certified Radiologist performing a high-precision clinical audit. 
+        systemInstruction: `You are an expert Board-Certified Radiologist and Cardiologist performing a high-precision multimodal clinical audit. 
         
         YOUR MISSION:
-        1. Objectivity: Maintain strict clinical neutrality. If the ${scanType} image shows normal anatomical structures with no pathology, you MUST mark 'abnormalityDetected' as FALSE. 
-        2. Accuracy: Do not hallucinate findings. If the scan is a "Normal Study", describe it as such in the report.
-        3. Logic: Only flag abnormalities if there are clear visual indicators of lesions, masses, fractures, inflammation, or structural irregularities.
+        1. Objectivity: Maintain strict clinical neutrality. Fusing the clinical markers (Cholesterol, Age, Gender) with the ${scanType} image, output a high-fidelity heart disease risk score (0-100) and heart disease diagnostic category.
+        2. Heart Disease Categorization: Categorize the heart disease based on the image features and clinical info. Standard categories include 'Normal Study / Low Risk', 'Coronary Artery Disease (CAD)', 'Cardiomegaly / Heart Failure', 'Atherosclerotic Heart Disease', or 'Hypertensive Heart Disease'.
+        3. Accuracy: Do not hallucinate findings. If the scan is normal, state so.
+        4. Logic: Synthesize image features (like chest shadow size, plaque calcification, etc.) and clinical markers (high cholesterol, elderly age, male gender baseline risk) to explain clinical significance.
         
         Output must be a high-speed JSON audit. Concise but precise. No fluff.`,
         temperature: 0.1,

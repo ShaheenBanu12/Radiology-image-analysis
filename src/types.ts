@@ -15,6 +15,11 @@ export interface ScanAnalysis {
   radiomicsFeatures?: RadiomicsFeatures;
   randomForestResult?: MLModelPrediction;
   xgboostResult?: MLModelPrediction;
+  age?: number;
+  gender?: 'Male' | 'Female' | 'Other';
+  cholesterol?: number;
+  heartDiseaseCategory?: string;
+  cardiovascularRiskScore?: number;
 }
 
 export interface ChatMessage {

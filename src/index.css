@@ -2,12 +2,12 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-bg: #F8FAFC;
-  --color-surface: #FFFFFF;
-  --color-border: #E2E8F0;
-  --color-accent: #0F172A;
-  --color-accent-blue: #3B82F6;
-  --color-text-main: #1E293B;
+  --color-bg: #07090E;
+  --color-surface: #0E131F;
+  --color-border: #1E293B;
+  --color-accent: #FFFFFF;
+  --color-accent-blue: #00E5FF;
+  --color-text-main: #E2E8F0;
   --color-text-muted: #64748B;
   --color-success: #10B981;
   --color-warning: #F59E0B;

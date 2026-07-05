@@ -26,6 +26,7 @@ import ReactMarkdown from 'react-markdown';
 import { analyzeRadioImage, streamChatWithRadiologyAI } from './services/gemini.ts';
 import { ScanAnalysis, ViewState, ChatMessage } from './types.ts';
 import { extractRadiomicsFeatures, runRandomForest, runXGBoost } from './services/classicalML';
+import MedicalRadarChart from './components/MedicalRadarChart';
 
 // Mock history matching new schema
 const MOCK_HISTORY: ScanAnalysis[] = [
@@ -358,7 +359,7 @@ export default function App() {
                 </div>
 
                 <section className="bg-surface rounded-[40px] border border-border shadow-md overflow-hidden">
-                  <div className="px-8 py-6 border-b border-border flex justify-between items-center bg-white">
+                  <div className="px-8 py-6 border-b border-border flex justify-between items-center bg-surface">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-accent-blue/10 rounded-lg">
                         <History className="w-5 h-5 text-accent-blue" />
@@ -536,7 +537,7 @@ export default function App() {
                   </div>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-5 py-2 bg-white border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-accent hover:shadow-md transition-all active:scale-95"
+                    className="flex items-center gap-2 px-5 py-2 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-accent hover:shadow-md transition-all active:scale-95"
                   >
                     <Upload className="w-4 h-4 text-accent-blue" />
                     Upload New Scan
@@ -684,7 +685,7 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="h-24 border-t border-border px-10 flex items-center gap-10 shrink-0 bg-white">
+                    <div className="h-24 border-t border-border px-10 flex items-center gap-10 shrink-0 bg-surface">
                       <div className="flex flex-col gap-1 shrink-0 w-32">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-black uppercase text-accent">NAV FRAME</span>
@@ -722,7 +723,7 @@ export default function App() {
                   <div className="flex flex-col min-h-0 gap-8">
                     {/* Findings Card */}
                     <div className="flex-1 bg-surface rounded-[40px] border border-border shadow-md flex flex-col overflow-hidden min-h-0">
-                      <div className="h-14 border-b border-border bg-white px-8 flex items-center justify-between shrink-0">
+                      <div className="h-14 border-b border-border bg-surface px-8 flex items-center justify-between shrink-0">
                          <div className="flex gap-1 p-1 bg-bg rounded-2xl border border-border">
                           {[
                             { id: 'doctor', icon: Microscope, label: 'Scientific Report' },
@@ -758,7 +759,7 @@ export default function App() {
                         )}
                       </div>
                       
-                      <div className="flex-1 p-10 overflow-y-auto custom-scrollbar bg-white/50">
+                      <div className="flex-1 p-10 overflow-y-auto custom-scrollbar bg-bg/20">
                         {isAnalyzing ? (
                           <div className="h-full flex flex-col items-center justify-center text-center space-y-8 p-12">
                             <div className="relative">
@@ -867,7 +868,10 @@ export default function App() {
                                    </p>
                                  </div>
 
-                                 {/* Radiomics Features Table */}
+                                 {/* Radar Scans */}
+                                  <MedicalRadarChart features={activeAnalysis.radiomicsFeatures} />
+
+                                  {/* Radiomics Features Table */}
                                  <div>
                                    <h5 className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-3 flex items-center gap-1.5">
                                      <Activity className="w-3.5 h-3.5 text-accent-blue" />
@@ -900,7 +904,7 @@ export default function App() {
                                  {/* Models Side-by-Side */}
                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
                                    {/* Random Forest Classifier */}
-                                   <div className="bg-white p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
+                                    <div className="bg-surface/50 p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
                                      <div>
                                        <span className="px-2.5 py-0.5 bg-success/10 text-success text-[8px] font-black uppercase rounded border border-success/20">Ensemble Classifier</span>
                                        <h5 className="text-xs font-black uppercase tracking-widest mt-2">Random Forest Classifier</h5>
@@ -948,7 +952,7 @@ export default function App() {
                                    </div>
 
                                    {/* XGBoost Classifier */}
-                                   <div className="bg-white p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
+                                    <div className="bg-surface/50 p-6 rounded-[32px] border border-border shadow-sm flex flex-col justify-between">
                                      <div>
                                        <span className="px-2.5 py-0.5 bg-accent-blue/10 text-accent-blue text-[8px] font-black uppercase rounded border border-accent-blue/20">Gradient Booster</span>
                                        <h5 className="text-xs font-black uppercase tracking-widest mt-2">XGBoost Classifier</h5>
@@ -1020,7 +1024,7 @@ export default function App() {
 
                     {/* Chat Card */}
                     <div className="h-80 bg-surface rounded-[40px] border border-border shadow-lg flex flex-col shrink-0 overflow-hidden">
-                       <div className="px-8 py-4 border-b border-border bg-white flex items-center justify-between text-[11px] font-black text-accent uppercase tracking-widest">
+                       <div className="px-8 py-4 border-b border-border bg-surface flex items-center justify-between text-[11px] font-black text-accent uppercase tracking-widest">
                           <div className="flex items-center gap-3">
                             <MessageSquare className="w-4 h-4 text-accent-blue" />
                             Interactive Clinical Query
@@ -1061,7 +1065,7 @@ export default function App() {
                           <div ref={chatEndRef} />
                        </div>
 
-                       <div className="p-5 bg-white border-t border-border flex gap-3">
+                       <div className="p-5 bg-surface border-t border-border flex gap-3">
                           <input 
                              type="text"
                              value={chatInput}
@@ -1083,7 +1087,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <footer className="h-10 border-t border-border bg-white shrink-0 flex items-center px-10 gap-10 text-[10px] font-bold text-text-muted">
+                <footer className="h-10 border-t border-border bg-surface shrink-0 flex items-center px-10 gap-10 text-[10px] font-bold text-text-muted">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-success" />
                     Neural Mesh Active
